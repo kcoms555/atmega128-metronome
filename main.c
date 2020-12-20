@@ -3,10 +3,27 @@
 #include <util/delay.h>
 #include <avr/interrupt.h>
 #include "queue.c"
+#include "WS2811.h"
+
+#define LEDNUM 17
+#define COLORNUM 8
+
+DEFINE_WS2811_FN(WS2811RGB, PORTE, 1)
+RGB_t led[LEDNUM];
+RGB_t colors[8];
+
+#define BIT(B)           (0x01 << (uint8_t)(B))
+#define SET_BIT_HI(V, B) (V) |= (uint8_t)BIT(B)
+#define SET_BIT_LO(V, B) (V) &= (uint8_t)~BIT(B)
+
+#ifndef ARRAYLEN
+#define ARRAYLEN(A) (sizeof(A) / sizeof(A[0]))
+#endif
 
 static volatile unsigned int bpm;
 static unsigned long time_gap; // 박자간 시간 간격(ms)
 static double position = 0; // LED 위치 : 0~1 사이의 값
+static int color = 4;
 static unsigned long now_time = 0;
 static unsigned long pos_time = 0;
 static unsigned char fnd_digit[10] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7c, 0x07, 0x7f, 0x67};
@@ -23,6 +40,9 @@ void set_bpm();
 void play_external_buzz(double);
 void play_embeded_buzz(double);
 void clear_time();
+void init_colors();  
+void display_external_circle_led(double position, int color);
+void led_one(int target, int c);
 
 void display_fnd(int number_4_digit) {
 	int i, fnd[4];
@@ -43,9 +63,9 @@ void display_embeded_led(double position){
 
 void display_external_led(double position){
 	if(position < 0.04)
-		PORTE |= 0x02;
+		PORTE |= 0x04;
 	else
-		PORTE &= ~0x02;
+		PORTE &= ~0x04;
 }
 
 void add_bpm(int num){
@@ -75,6 +95,14 @@ void play_external_buzz(double position){
 }
 void clear_time(){
 	pos_time = 0;
+}
+void set_color(double position){
+	color = (int)(COLORNUM * position);
+}
+void add_color(){
+	color++;
+	if(color > 7)
+		color = 0;
 }
 
 //bpm 증가 버튼
@@ -110,6 +138,10 @@ int main(void)
 	DDRC = 0xff; // C 포트는 FND 데이터 신호
 	DDRG = 0x0f; // G 포트는 FND 선택 신호
 
+ 	SET_BIT_HI(DDRE, 1);
+    SET_BIT_LO(PORTE, 1);
+	init_colors();
+
 	TIMSK = 0b00000001; // 0번 타이머 인터럽트 활성화
 	TCCR0 = 0b00000111; // 1024분주 ( 64us 마다 TCNT0 1 증가 시킴)
 	TCNT0 = TCNT_COUNT_VALUE; // 250번 카운트 되면 인터럽트 발생 (16ms 마다 인터럽트 발생)
@@ -124,10 +156,57 @@ int main(void)
 	bpm = 60;
 	time_gap = 60000/bpm;
 	while (1){
+		set_color(position);
 		display_fnd(bpm); //약 8ms 지연 발생
 		display_embeded_led(position);
 		display_external_led(position);
+		display_external_circle_led(position, color);
 		play_external_buzz(position);
 		play_embeded_buzz(position);
 	}
+}
+
+void led_one(int target, int c) {
+	for (int i=0; i<LEDNUM; i++) {
+		if (i == target) {
+			led[i] = colors[c];    // set led on
+		}
+		else {
+	    	led[i].r=0;led[i].g=0;led[i].b=0;    // set led off
+		}
+		WS2811RGB(led, ARRAYLEN(led));
+	}
+}
+
+void init_colors() {
+	for(int i=0; i<COLORNUM; i++){
+		colors[i].r=30;
+		colors[i].g=30;
+		colors[i].b=30;
+	}
+	colors[0].r=90;
+	colors[0].g=00;
+	colors[0].b=00;
+
+	colors[COLORNUM-1].r=00;
+	colors[COLORNUM-1].g=90;
+	colors[COLORNUM-1].b=00;
+
+	colors[COLORNUM-2].r=45;
+	colors[COLORNUM-2].g=45;
+	colors[COLORNUM-2].b=00;
+	/*
+	colors[0].r=150; colors[0].g=150; colors[0].b=150;
+    colors[1].r=255; colors[1].g=000; colors[1].b=000;//red
+    colors[2].r=255; colors[2].g=100; colors[2].b=000;//orange
+    colors[3].r=100; colors[3].g=255; colors[3].b=000;//yellow
+    colors[4].r=000; colors[4].g=255; colors[4].b=000;//green
+    colors[5].r=000; colors[5].g=100; colors[5].b=255;//light blue (turkis)
+    colors[6].r=000; colors[6].g=000; colors[6].b=255;//blue
+    colors[7].r=100; colors[7].g=000; colors[7].b=255;//violet
+	*/
+}
+
+void display_external_circle_led(double position, int color) {
+	led_one(LEDNUM * position, color);
 }
